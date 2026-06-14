@@ -48,11 +48,12 @@ go build -o warp .
 # 2. Start one or more load generators (bind to a routable address, not 127.0.0.1)
 ./warp client 0.0.0.0:7761
 
-# 3. Start the control plane (loopback by default; use 0.0.0.0 behind a proxy)
-./warp control --addr 127.0.0.1:7762 --dir warp-control
+# 3. Start the control plane with login enabled (see "Authentication" below)
+WARP_CONTROL_USER=admin WARP_CONTROL_PASSWORD='strong-secret' \
+  ./warp control --addr 127.0.0.1:7762 --dir warp-control
 ```
 
-Open <http://127.0.0.1:7762> and:
+Open <http://127.0.0.1:7762>, sign in, then:
 
 1. **Targets** → add your S3 endpoint + credentials + bucket → **Check**.
 2. **Clients** → add each `warp client` address (e.g. `127.0.0.1:7761`) → **Check**.
@@ -61,6 +62,69 @@ Open <http://127.0.0.1:7762> and:
 
 > Data (scenarios, targets, client pool, run history) is stored under `--dir`
 > (`warp-control/` by default). Credentials live only in targets and are redacted in API responses.
+
+## Authentication
+
+The control plane has built-in, session-based login. It is enabled automatically
+when **both** credential environment variables are set:
+
+| Variable                | Description    |
+| ----------------------- | -------------- |
+| `WARP_CONTROL_USER`     | Login username |
+| `WARP_CONTROL_PASSWORD` | Login password |
+
+- With both set → every page/API requires login; unauthenticated browser requests
+  are redirected to `/login`, and a **Logout** button appears in the UI.
+- With either unset → authentication is **disabled** and the UI is open (handy for
+  a quick local run). The startup log prints which mode is active:
+
+  ```text
+  Authentication: enabled (login required)
+  # or
+  Authentication: disabled — set WARP_CONTROL_USER and WARP_CONTROL_PASSWORD to require login
+  ```
+
+Sessions are HTTP cookies (`HttpOnly`, `SameSite=Lax`, 12h) stored in memory, so a
+restart logs everyone out. Credentials are read from the environment only — never
+hard-coded — and validated server-side with a constant-time comparison.
+
+> **Behind TLS:** the control plane serves plain HTTP, so terminate TLS at a
+> reverse proxy (e.g. HAProxy/NGINX) in front of it. Auth still works; the proxy
+> provides HTTPS.
+
+## Deploy with Docker / Podman
+
+Run the published image with the credentials passed as environment variables and
+the UI port published:
+
+```bash
+docker run -d --name warp-control \
+  -e WARP_CONTROL_USER=admin \
+  -e WARP_CONTROL_PASSWORD='strong-secret' \
+  -p 7762:7762 \
+  -v warp-control-data:/data \
+  ghcr.io/snapp-incubator/warp:latest \
+  control --addr 0.0.0.0:7762 --dir /data
+```
+
+Then open <http://localhost:7762> and sign in.
+
+Notes:
+
+- Use `--addr 0.0.0.0:7762` so the server listens on all interfaces inside the
+  container, and `-p 7762:7762` to publish it to the host.
+- Prefer **`-p 7762:7762`** over `--network host`: host networking only exposes the
+  port on Linux; on Docker Desktop (macOS/Windows) it binds inside the VM and the
+  port is unreachable from the host (`connection refused`).
+- `-v warp-control-data:/data` persists scenarios, targets, the client pool and run
+  history across restarts.
+- The control plane makes **outbound** connections to your `warp client` load
+  generators, which works on the default bridge network — host networking is not
+  required for that.
+
+The image is produced by the **`Build and push Docker image`** GitHub Action on
+every `v*` tag push (see `.github/workflows/docker-release.yml`), e.g. tagging
+`v1.5.0` publishes `ghcr.io/snapp-incubator/warp:1.5.0` (+ `:1.5`, `:latest`).
 
 ## Standalone web UI (no control plane)
 
