@@ -382,6 +382,14 @@ function formatBytes(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
+// objectsPerOp is the average number of objects each operation touched.
+// 1 for GET/PUT/STAT/DELETE; higher for LIST (objects returned per call).
+function objectsPerOp(agg) {
+    const reqs = agg?.total_requests || 0;
+    const objs = agg?.total_objects || 0;
+    return reqs > 0 ? objs / reqs : 1;
+}
+
 function formatThroughput(bps, ops) {
     if ((!bps || bps === 0) && ops > 0) {
         return { value: parseFloat(ops.toFixed(1)), unit: 'obj/s' };
@@ -650,6 +658,9 @@ function renderHeroStats() {
         opsPerSec = (tp.ops * 1000) / tp.measure_duration_millis;
     }
     const tput = formatThroughput(bps, opsPerSec);
+    // Count-based throughput is operations/sec; label LIST-style ops (many
+    // objects per call) as ops/s rather than obj/s.
+    if (tput.unit === 'obj/s' && objectsPerOp(total) > 1.5) tput.unit = 'ops/s';
     const bytesParts = formatBytes(total.total_bytes || 0).split(' ');
 
     const durMs = tp?.measure_duration_millis || 0;
@@ -738,7 +749,11 @@ function renderOperationCards() {
             bps = (tp.bytes * 1000) / tp.measure_duration_millis;
             opsPerSec = (tp.ops * 1000) / tp.measure_duration_millis;
         }
+        const opp = objectsPerOp(opData);
         const tput = formatThroughput(bps, opsPerSec);
+        // The count-based throughput is operations/sec. For ops that return many
+        // objects per call (e.g. LIST) label it ops/s, not obj/s.
+        if (tput.unit === 'obj/s' && opp > 1.5) tput.unit = 'ops/s';
         const lat = getLatencyStats(opData);
         const ttfb = getTtfbStats(opData);
 
@@ -754,6 +769,10 @@ function renderOperationCards() {
                         <span class="label">Requests</span>
                         <span class="value">${formatNumber(opData?.total_requests || 0)}</span>
                     </div>
+                    ${opp > 1.5 ? `<div class="bar-stat">
+                        <span class="label">Objects/op</span>
+                        <span class="value">${Math.round(opp)}</span>
+                    </div>` : ''}
                     <div class="bar-stat">
                         <span class="label">Data</span>
                         <span class="value">${formatBytes(opData?.total_bytes || 0)}</span>
