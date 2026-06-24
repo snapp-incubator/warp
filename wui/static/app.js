@@ -1182,6 +1182,9 @@ function renderHostsTable() {
                             const bps = h.measure_duration_millis > 0 ? (h.bytes * 1000) / h.measure_duration_millis : 0;
                             const ops = h.measure_duration_millis > 0 ? (h.ops * 1000) / h.measure_duration_millis : 0;
                             const tp = formatThroughput(bps, ops);
+                            // LIST-style ops return many objects per call: count-based
+                            // throughput here is operations/sec, so label it ops/s.
+                            if (tp.unit === 'obj/s' && objectsPerOp(opData) > 1.5) tp.unit = 'ops/s';
                             return `<tr>
                                 <td>${host}</td>
                                 <td>${formatNumber(h.ops || 0)}</td>
@@ -1238,6 +1241,9 @@ function renderClientsTable() {
                             const bps = c.measure_duration_millis > 0 ? (c.bytes * 1000) / c.measure_duration_millis : 0;
                             const ops = c.measure_duration_millis > 0 ? (c.ops * 1000) / c.measure_duration_millis : 0;
                             const tp = formatThroughput(bps, ops);
+                            // LIST-style ops return many objects per call: count-based
+                            // throughput here is operations/sec, so label it ops/s.
+                            if (tp.unit === 'obj/s' && objectsPerOp(opData) > 1.5) tp.unit = 'ops/s';
                             return `<tr>
                                 <td>${client}</td>
                                 <td>${formatNumber(c.ops || 0)}</td>
