@@ -77,6 +77,54 @@ function resetFlags() {
     });
 }
 
+// Scenario create/edit. editScenarioId is null when creating. editExtraUnknown
+// holds advanced flags that have no matching form control, so editing preserves them.
+let editScenarioId = null;
+let editExtraUnknown = {};
+
+function fillScenarioForm(s) {
+    const f = $('#scenario-form');
+    const sp = s.spec || {};
+    f.name.value = s.name || '';
+    f.method.value = sp.method || 'get';
+    f.obj_size.value = sp.obj_size || '';
+    f.duration.value = sp.duration || '';
+    f.objects.value = sp.objects ?? '';
+    f.concurrent.value = sp.concurrent ?? '';
+    f.get_distrib.value = sp.get_distrib ?? '';
+    f.put_distrib.value = sp.put_distrib ?? '';
+    f.stat_distrib.value = sp.stat_distrib ?? '';
+    f.delete_distrib.value = sp.delete_distrib ?? '';
+    resetFlags();
+    editExtraUnknown = {};
+    Object.entries(sp.extra_flags || {}).forEach(([k, v]) => {
+        const el = document.querySelector(`[data-flag="${CSS.escape(k)}"]`);
+        if (!el) { editExtraUnknown[k] = v; return; }        // unknown flag → preserve
+        if (el.type === 'checkbox') el.checked = true;        // boolean flag present = on
+        else el.value = v;
+    });
+}
+
+function enterScenarioEdit(s) {
+    editScenarioId = s.id;
+    fillScenarioForm(s);
+    $('#scenario-submit').textContent = 'Update scenario';
+    $('#scenario-cancel-edit').hidden = false;
+    document.querySelector('#scenario-form details')?.setAttribute('open', '');
+    $('#scenario-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function exitScenarioEdit() {
+    editScenarioId = null;
+    editExtraUnknown = {};
+    $('#scenario-form').reset();
+    resetFlags();
+    $('#scenario-submit').textContent = 'Save scenario';
+    $('#scenario-cancel-edit').hidden = true;
+}
+
+$('#scenario-cancel-edit').addEventListener('click', exitScenarioEdit);
+
 $('#scenario-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = e.target;
@@ -90,13 +138,17 @@ $('#scenario-form').addEventListener('submit', async (e) => {
         put_distrib: num(f.put_distrib.value),
         stat_distrib: num(f.stat_distrib.value),
         delete_distrib: num(f.delete_distrib.value),
-        extra_flags: collectFlags(),
+        extra_flags: Object.assign({}, editExtraUnknown, collectFlags()),
     };
     try {
-        await api('POST', '/api/scenarios', { name: f.name.value, spec });
-        f.reset();
-        resetFlags();
-        toast('Scenario saved');
+        if (editScenarioId) {
+            await api('PUT', `/api/scenarios/${editScenarioId}`, { name: f.name.value, spec });
+            toast('Scenario updated');
+        } else {
+            await api('POST', '/api/scenarios', { name: f.name.value, spec });
+            toast('Scenario saved');
+        }
+        exitScenarioEdit();
         loadScenarios();
     } catch (err) { toast(err.message, true); }
 });
@@ -123,6 +175,7 @@ async function loadScenarios() {
             </div>
             <div class="actions">
                 <button class="btn small primary" data-run="${s.id}" data-name="${esc(s.name)}">Run…</button>
+                <button class="btn small" data-edit="${s.id}">Edit</button>
                 <button class="btn small danger" data-del-scenario="${s.id}">Delete</button>
             </div>
         </div>`;
@@ -130,6 +183,10 @@ async function loadScenarios() {
 
     $$('[data-run]', el).forEach((b) => b.addEventListener('click', () => {
         openRunModal(b.dataset.run, b.dataset.name);
+    }));
+    $$('[data-edit]', el).forEach((b) => b.addEventListener('click', () => {
+        const sc = list.find((x) => x.id === b.dataset.edit);
+        if (sc) enterScenarioEdit(sc);
     }));
     $$('[data-del-scenario]', el).forEach((b) => b.addEventListener('click', async () => {
         await api('DELETE', `/api/scenarios/${b.dataset.delScenario}`);
@@ -305,12 +362,15 @@ async function loadRuns() {
         const detail = r.error ? esc(r.error) : (r.result_file ? esc(r.result_file) : '');
         const canView = (r.status === 'done' || r.status === 'degraded') && r.result_file;
         const viewBtn = canView ? `<button class="btn small primary" data-view="${r.id}">View results</button>` : '';
+        const inProgress = r.status === 'running' || r.status === 'queued';
+        const stopBtn = inProgress ? `<button class="btn small danger" data-stop-run="${r.id}">Stop</button>` : '';
+        const delBtn = !inProgress ? `<button class="btn small danger" data-del-run="${r.id}">Delete</button>` : '';
         return `<div class="row">
             <div>
                 <div class="title">${esc(r.scenario_name)} → ${esc(r.target_name)}</div>
                 <div class="meta">${esc(when)} · ${clients} client(s)${detail ? ' · ' + detail : ''}</div>
             </div>
-            <div class="actions">${viewBtn}<span class="pill ${r.status}">${esc(r.status)}</span></div>
+            <div class="actions">${viewBtn}${stopBtn}${delBtn}<span class="pill ${r.status}">${esc(r.status)}</span></div>
         </div>`;
     }).join('');
     el.innerHTML = compareBar + rows;
@@ -318,6 +378,24 @@ async function loadRuns() {
     // View opens the wui dashboard, served through this same server under /dash/.
     $$('[data-view]', el).forEach((b) => b.addEventListener('click', () => {
         window.open(`/dash/?run=${encodeURIComponent(b.dataset.view)}`, '_blank');
+    }));
+    $$('[data-stop-run]', el).forEach((b) => b.addEventListener('click', async () => {
+        if (!confirm('Stop this running benchmark?')) return;
+        try {
+            await api('POST', `/api/runs/${b.dataset.stopRun}/stop`);
+            toast('Stopping run…');
+            lastRunsSig = '';
+            loadRuns();
+        } catch (err) { toast(err.message, true); }
+    }));
+    $$('[data-del-run]', el).forEach((b) => b.addEventListener('click', async () => {
+        if (!confirm('Delete this run and its result files? This cannot be undone.')) return;
+        try {
+            await api('DELETE', `/api/runs/${b.dataset.delRun}`);
+            toast('Run deleted');
+            lastRunsSig = '';
+            loadRuns();
+        } catch (err) { toast(err.message, true); }
     }));
 
     const go = $('#cmp-go', el);

@@ -238,3 +238,10 @@ func (s *Store) SaveRun(r *Run) error {
 	s.data.Runs[r.ID] = r
 	return s.flush()
 }
+
+func (s *Store) DeleteRun(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.data.Runs, id)
+	return s.flush()
+}

@@ -25,6 +25,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"runtime/debug"
 	"sync"
@@ -44,8 +45,18 @@ type Service struct {
 	auth    *auth
 	runMu   sync.Mutex // serializes runs; only one benchmark may run at a time
 
+	runCtlMu sync.Mutex
+	runCtl   map[string]*runControl // in-flight runs, so they can be stopped
+
 	resultMu    sync.Mutex
 	resultCache map[string]*aggregate.Realtime // run ID -> parsed result (immutable once done)
+}
+
+// runControl lets a running benchmark be cancelled. stopped distinguishes a
+// user-initiated stop (→ aborted) from a genuine failure (→ failed).
+type runControl struct {
+	cancel  context.CancelFunc
+	stopped bool
 }
 
 // NewService creates a control-plane service backed by store, using exec to run
@@ -57,6 +68,7 @@ func NewService(store *Store, exec Executor, dataDir string) *Service {
 		dataDir:     dataDir,
 		runsDir:     filepath.Join(dataDir, "runs"),
 		auth:        newAuth(),
+		runCtl:      map[string]*runControl{},
 		resultCache: map[string]*aggregate.Realtime{},
 	}
 }
@@ -100,6 +112,8 @@ func (s *Service) Handler() http.Handler {
 
 	mux.HandleFunc("GET /api/runs", s.listRuns)
 	mux.HandleFunc("GET /api/runs/{id}", s.getRun)
+	mux.HandleFunc("DELETE /api/runs/{id}", s.deleteRun)
+	mux.HandleFunc("POST /api/runs/{id}/stop", s.stopRun)
 
 	// Reuse the wui dashboard + compare views, served through the control plane's
 	// own port (so they work behind a reverse proxy). The pages fetch their data
@@ -338,6 +352,61 @@ func (s *Service) getRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, run)
 }
 
+// stopRun cancels an in-progress run. The run finishes as "aborted".
+func (s *Service) stopRun(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	run, ok := s.store.GetRun(id)
+	if !ok {
+		writeErr(w, http.StatusNotFound, "run not found")
+		return
+	}
+	if run.Status != RunRunning && run.Status != RunQueued {
+		writeErr(w, http.StatusConflict, "run is not in progress")
+		return
+	}
+
+	s.runCtlMu.Lock()
+	ctl := s.runCtl[id]
+	if ctl != nil {
+		ctl.stopped = true
+		ctl.cancel() // kills the benchmark subprocess; executeRun marks it aborted
+	}
+	s.runCtlMu.Unlock()
+
+	if ctl == nil {
+		// Queued but not yet executing (no control registered) — mark it aborted.
+		s.finishRun(run, RunAborted, "", "stopped by user")
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "stopping"})
+}
+
+// deleteRun removes a run, its cached result and its on-disk artifacts. A run in
+// progress cannot be deleted (its files are still being written).
+func (s *Service) deleteRun(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	run, ok := s.store.GetRun(id)
+	if !ok {
+		writeErr(w, http.StatusNotFound, "run not found")
+		return
+	}
+	if run.Status == RunRunning || run.Status == RunQueued {
+		writeErr(w, http.StatusConflict, "cannot delete a run that is still in progress")
+		return
+	}
+
+	if err := s.store.DeleteRun(id); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.resultMu.Lock()
+	delete(s.resultCache, id)
+	s.resultMu.Unlock()
+	// Best-effort removal of the run's artifact directory.
+	_ = os.RemoveAll(filepath.Join(s.runsDir, id))
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // viewRun loads a finished run's result and serves it in a wui dashboard,
 // returning the URL to open. The dashboard is reused if already running.
 // resultFor loads and caches a run's parsed result. Results are immutable once a
@@ -488,10 +557,29 @@ func (s *Service) executeRun(run *Run, target *Target) {
 		return
 	}
 
-	ctx := context.Background()
+	// Register a cancellable context so the run can be stopped via the API.
+	ctx, cancel := context.WithCancel(context.Background())
+	ctl := &runControl{cancel: cancel}
+	s.runCtlMu.Lock()
+	s.runCtl[run.ID] = ctl
+	s.runCtlMu.Unlock()
+	defer func() {
+		cancel()
+		s.runCtlMu.Lock()
+		delete(s.runCtl, run.ID)
+		s.runCtlMu.Unlock()
+	}()
+
 	resultFile, err := s.exec.Run(ctx, run, target, runDir)
 	if err != nil {
-		s.finishRun(run, RunFailed, "", err.Error())
+		s.runCtlMu.Lock()
+		stopped := ctl.stopped
+		s.runCtlMu.Unlock()
+		if stopped {
+			s.finishRun(run, RunAborted, "", "stopped by user")
+		} else {
+			s.finishRun(run, RunFailed, "", err.Error())
+		}
 		return
 	}
 	s.finishRun(run, RunDone, resultFile, "")
