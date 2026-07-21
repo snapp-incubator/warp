@@ -70,6 +70,7 @@
                         <div class="grid">
                             <label>Custom prefix<input data-flag="prefix" placeholder="e.g. bench/"></label>
                             <label>Storage class<input data-flag="storage-class" placeholder="e.g. STANDARD"></label>
+                            <label title="LIST only. Keys returned per LIST request (warp default 100, max 5000). Set above objects-per-prefix so each LIST is one non-truncated page — required on Ceph mimic.">Max keys per LIST<input type="number" min="1" max="5000" data-flag="max-keys" placeholder="e.g. 2000"></label>
                             <label>Checksum
                                 <select data-flag="checksum">
                                     <option value="">none (default)</option>
