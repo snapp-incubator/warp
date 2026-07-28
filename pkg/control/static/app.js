@@ -323,6 +323,17 @@ async function loadClients() {
 
 // --- Runs ---
 let lastRunsSig = '';
+// Runs the user has ticked for a multi-run comparison. Kept across re-renders
+// so polling never drops the selection.
+const selectedRuns = new Set();
+
+function updateCompareSelected() {
+    const btn = $('#cmp-selected-go');
+    if (!btn) return;
+    const n = selectedRuns.size;
+    btn.disabled = n < 2;
+    btn.textContent = n < 2 ? 'Compare selected' : `Compare selected (${n})`;
+}
 
 async function loadRuns() {
     const list = await api('GET', '/api/runs');
@@ -337,9 +348,14 @@ async function loadRuns() {
 
     const viewable = list.filter((r) => (r.status === 'done' || r.status === 'degraded') && r.result_file);
 
-    // Compare bar: pick two finished runs and open the comparison dashboard.
-    // Preserve the current selections across re-renders; default to the two most
-    // recent runs so they differ out of the box.
+    // Drop selections for runs that are no longer viewable (e.g. deleted).
+    const viewableIds = new Set(viewable.map((r) => r.id));
+    [...selectedRuns].forEach((id) => { if (!viewableIds.has(id)) selectedRuns.delete(id); });
+
+    // Compare bar: pick two finished runs (before/after) and open the comparison
+    // dashboard, or tick several results below and compare them all per operation.
+    // Preserve the current selections across re-renders; default the before/after
+    // dropdowns to the two most recent runs so they differ out of the box.
     let compareBar = '';
     if (viewable.length >= 2) {
         const prevBefore = $('#cmp-before')?.value || viewable[0].id;
@@ -353,6 +369,10 @@ async function loadRuns() {
                 <label>After<select id="cmp-after">${optsFor(prevAfter)}</select></label>
             </div>
             <button class="btn primary" id="cmp-go">Compare</button>
+            <hr style="border:none;border-top:1px solid var(--border);margin:16px 0">
+            <h3>Compare multiple runs</h3>
+            <p class="hint" style="margin-top:0">Tick two or more results below, then compare them side by side grouped by operation (GET, PUT, …).</p>
+            <button class="btn primary" id="cmp-selected-go" disabled>Compare selected</button>
         </div>`;
     }
 
@@ -365,8 +385,14 @@ async function loadRuns() {
         const inProgress = r.status === 'running' || r.status === 'queued';
         const stopBtn = inProgress ? `<button class="btn small danger" data-stop-run="${r.id}">Stop</button>` : '';
         const delBtn = !inProgress ? `<button class="btn small danger" data-del-run="${r.id}">Delete</button>` : '';
+        // A select checkbox for finished runs feeds the multi-run comparison.
+        const checked = selectedRuns.has(r.id) ? 'checked' : '';
+        const selectBox = canView
+            ? `<input type="checkbox" class="run-select" data-select="${r.id}" ${checked} title="Select for comparison" aria-label="Select for comparison">`
+            : '<span class="run-select-spacer"></span>';
         return `<div class="row">
-            <div>
+            ${selectBox}
+            <div class="row-main">
                 <div class="title">${esc(r.scenario_name)} → ${esc(r.target_name)}</div>
                 <div class="meta">${esc(when)} · ${clients} client(s)${detail ? ' · ' + detail : ''}</div>
             </div>
@@ -405,6 +431,20 @@ async function loadRuns() {
         if (before === after) { toast('Pick two different runs', true); return; }
         window.open(`/dash/compare.html?before=${encodeURIComponent(before)}&after=${encodeURIComponent(after)}`, '_blank');
     });
+
+    // Multi-run selection: keep the set in sync with the checkboxes.
+    $$('[data-select]', el).forEach((b) => b.addEventListener('change', () => {
+        if (b.checked) selectedRuns.add(b.dataset.select);
+        else selectedRuns.delete(b.dataset.select);
+        updateCompareSelected();
+    }));
+    const selGo = $('#cmp-selected-go', el);
+    if (selGo) selGo.addEventListener('click', () => {
+        if (selectedRuns.size < 2) { toast('Select at least two results', true); return; }
+        const ids = [...selectedRuns].map(encodeURIComponent).join(',');
+        window.open(`/dash/multi.html?runs=${ids}`, '_blank');
+    });
+    updateCompareSelected();
 }
 $('#refresh-runs').addEventListener('click', loadRuns);
 

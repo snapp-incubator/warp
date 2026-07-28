@@ -241,7 +241,7 @@ async function exportPdf() {
         });
 
         const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
-        doc.save(`warp-compare-${stamp}.pdf`);
+        doc.save(`${(data.report_name || `warp-compare-${stamp}`)}.pdf`);
     } catch (err) {
         console.error('PDF export failed:', err);
         alert('PDF export failed: ' + (err && err.message ? err.message : err));

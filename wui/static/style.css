@@ -1289,6 +1289,77 @@ th.cmp-run-col {
     max-width: 220px;
 }
 
+/* ── Multi-run comparison ───────────────────────────────────── */
+.multi-runs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+}
+.multi-run {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+}
+.multi-run::before {
+    content: '#' counter(multi-run);
+    counter-increment: multi-run;
+    color: hsl(var(--muted-foreground));
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+.multi-runs { counter-reset: multi-run; }
+.multi-swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    flex: 0 0 auto;
+}
+.multi-run-name {
+    font-weight: 600;
+    color: hsl(var(--foreground));
+    word-break: break-all;
+}
+.multi-mini-wrap {
+    position: relative;
+    height: 160px;
+}
+td.multi-best {
+    color: hsl(var(--primary));
+    font-weight: 700;
+}
+.multi-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+.multi-card-head .cmp-metric-title {
+    margin-bottom: 0;
+    text-align: left;
+    flex: 1;
+}
+.multi-dl {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: hsl(var(--muted-foreground));
+    cursor: pointer;
+    transition: color .15s, border-color .15s;
+}
+.multi-dl:hover {
+    color: hsl(var(--primary));
+    border-color: hsl(var(--primary));
+}
+
 /* ── Print / Export-PDF ─────────────────────────────────────── */
 @media print {
     .ambient,

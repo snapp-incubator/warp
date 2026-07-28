@@ -78,6 +78,9 @@ code { font-family: var(--mono); background: var(--surface-2); padding: 2px 6px;
 .row .meta { color: var(--muted); font-size: 12px; margin-top: 3px; }
 .row .title { font-weight: 600; }
 .row .actions { display: flex; gap: 8px; align-items: center; }
+.row .row-main { flex: 1; min-width: 0; }
+.row .run-select { width: 16px; height: 16px; flex: 0 0 auto; cursor: pointer; accent-color: var(--accent); }
+.row .run-select-spacer { width: 16px; flex: 0 0 auto; }
 .pill {
     font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
     padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border);

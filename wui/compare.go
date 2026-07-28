@@ -35,6 +35,9 @@ type CompareData struct {
 	BeforeFile string      `json:"before_file"`
 	AfterFile  string      `json:"after_file"`
 	Ops        []CompareOp `json:"ops"`
+	// ReportName is an optional PDF-friendly base name (scenario + test time)
+	// the frontend uses to name the exported PDF. Empty when unknown.
+	ReportName string `json:"report_name,omitempty"`
 }
 
 // CompareOp is the comparison for a single operation type (GET, PUT, ...).

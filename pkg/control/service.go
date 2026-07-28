@@ -28,6 +28,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -120,6 +121,7 @@ func (s *Service) Handler() http.Handler {
 	// from run-scoped endpoints below; more specific patterns win over /dash/.
 	mux.HandleFunc("GET /dash/api/data", s.dashData)
 	mux.HandleFunc("GET /dash/api/compare", s.dashCompare)
+	mux.HandleFunc("GET /dash/api/multi", s.dashMulti)
 	mux.Handle("/dash/", http.StripPrefix("/dash/", http.FileServerFS(wui.StaticFS())))
 
 	staticFS, err := fs.Sub(staticFiles, "static")
@@ -435,12 +437,17 @@ func (s *Service) resultFor(runID string) (*aggregate.Realtime, error) {
 
 // dashData serves a single run's result in the wui dashboard's expected envelope.
 func (s *Service) dashData(w http.ResponseWriter, r *http.Request) {
-	rt, err := s.resultFor(r.URL.Query().Get("run"))
+	runID := r.URL.Query().Get("run")
+	rt, err := s.resultFor(runID)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"auto_update": false, "data": rt})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"auto_update": false,
+		"data":        rt,
+		"report_name": s.reportName(runID),
+	})
 }
 
 // dashCompare serves a before/after comparison of two runs for the compare view.
@@ -458,7 +465,42 @@ func (s *Service) dashCompare(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := wui.BuildCompareData(before, after, s.runLabel(beforeID), s.runLabel(afterID), "")
+	data.ReportName = s.reportName(beforeID) + "_vs_" + s.reportName(afterID)
 	writeJSON(w, http.StatusOK, data)
+}
+
+// dashMulti serves a multi-run comparison for the multi-compare view. Runs are
+// given as a comma-separated list of run IDs (?runs=id1,id2,...), grouped by
+// operation type so every result for one operation lines up on one page.
+func (s *Service) dashMulti(w http.ResponseWriter, r *http.Request) {
+	raw := r.URL.Query().Get("runs")
+	var ids []string
+	for _, id := range strings.Split(raw, ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) < 2 {
+		writeErr(w, http.StatusBadRequest, "select at least two runs to compare")
+		return
+	}
+
+	runs := make([]wui.MultiRun, 0, len(ids))
+	for _, id := range ids {
+		rt, err := s.resultFor(id)
+		if err != nil {
+			writeErr(w, http.StatusNotFound, s.runLabel(id)+": "+err.Error())
+			return
+		}
+		runs = append(runs, wui.MultiRun{Label: s.runLabel(id), Data: rt})
+	}
+	md := wui.BuildMultiData(runs)
+	// Name the export after the first run plus a count of the rest.
+	md.ReportName = s.reportName(ids[0])
+	if len(ids) > 1 {
+		md.ReportName = fmt.Sprintf("%s-and-%d-more", md.ReportName, len(ids)-1)
+	}
+	writeJSON(w, http.StatusOK, md)
 }
 
 // runLabel produces a human label for a run used in the compare view.
@@ -468,6 +510,36 @@ func (s *Service) runLabel(runID string) string {
 		return fmt.Sprintf("%s-%s-%s", run.ScenarioName, run.TargetName, run.StartedAt.Format("2006-01-02_15-04-05"))
 	}
 	return runID
+}
+
+// reportName builds a PDF-friendly base name from a run: its scenario name plus
+// the time the test started, e.g. "get-100mib-2026-07-26_10-04-05". Exported
+// PDFs use this so downloads are named by scenario and test time.
+func (s *Service) reportName(runID string) string {
+	if run, ok := s.store.GetRun(runID); ok {
+		return sanitizeName(fmt.Sprintf("%s-%s", run.ScenarioName, run.StartedAt.Format("2006-01-02_15-04-05")))
+	}
+	return sanitizeName(runID)
+}
+
+// sanitizeName reduces a string to a safe filename base: letters, digits, '_'
+// and '-' are kept, every other run of characters becomes a single '-'.
+func sanitizeName(s string) string {
+	var b strings.Builder
+	prevDash := false
+	for _, r := range s {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-':
+			b.WriteRune(r)
+			prevDash = false
+		default:
+			if !prevDash {
+				b.WriteByte('-')
+				prevDash = true
+			}
+		}
+	}
+	return strings.Trim(b.String(), "-")
 }
 
 type runRequest struct {

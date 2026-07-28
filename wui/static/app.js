@@ -185,7 +185,7 @@ async function exportPdf() {
         }
 
         const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
-        doc.save(`warp-report-${stamp}.pdf`);
+        doc.save(`${reportBase || `warp-report-${stamp}`}.pdf`);
     } catch (err) {
         console.error('PDF export failed:', err);
         alert('PDF export failed: ' + (err && err.message ? err.message : err));
@@ -497,6 +497,7 @@ document.addEventListener('keydown', (e) => {
 
 // ----- App -----
 let data = null;
+let reportBase = ''; // PDF filename base (scenario + test time), from the API
 let charts = {};
 let pollTimer = null;
 let firstRender = true;
@@ -510,6 +511,7 @@ async function loadData() {
         if (!response.ok) throw new Error('Failed to load data');
         const apiResponse = await response.json();
         data = apiResponse.data || apiResponse;
+        reportBase = apiResponse.report_name || '';
         const autoUpdate = !!apiResponse.auto_update;
         updateLiveStatus(autoUpdate);
         renderDashboard();
