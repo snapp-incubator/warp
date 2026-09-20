@@ -36,11 +36,12 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"github.com/minio/cli"
 	"github.com/minio/mc/pkg/probe"
+	"github.com/minio/websocket"
+
 	"github.com/minio/warp/api"
 	"github.com/minio/warp/pkg/aggregate"
 	"github.com/minio/warp/pkg/bench"
 	"github.com/minio/warp/wui"
-	"github.com/minio/websocket"
 )
 
 const warpServerVersion = 1
@@ -133,6 +134,7 @@ func runServerBenchmark(ctx *cli.Context, b bench.Benchmark) (bool, error) {
 
 	// Serialize parameters
 	excludeFlags := map[string]struct{}{
+		"benchdata":          {},
 		"warp-client":        {},
 		"warp-client-server": {},
 		"serverprof":         {},
