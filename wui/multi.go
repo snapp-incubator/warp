@@ -147,7 +147,7 @@ func buildMetric(m metricDef, sums []aggregate.OpSummary, present []bool) *Multi
 		Display:        make([]string, len(sums)),
 		Present:        make([]bool, len(sums)),
 	}
-	any := false
+	anyPresent := false
 	for i, s := range sums {
 		if !present[i] {
 			metric.Display[i] = "—"
@@ -158,12 +158,12 @@ func buildMetric(m metricDef, sums []aggregate.OpSummary, present []bool) *Multi
 		metric.Present[i] = ok
 		if ok {
 			metric.Display[i] = m.format(v)
-			any = true
+			anyPresent = true
 		} else {
 			metric.Display[i] = "—"
 		}
 	}
-	if !any {
+	if !anyPresent {
 		return nil
 	}
 	return &metric

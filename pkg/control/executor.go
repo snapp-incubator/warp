@@ -32,7 +32,7 @@ import (
 // without changing the service.
 type Executor interface {
 	// Run executes the benchmark described by run. It blocks until the run
-	// finishes or ctx is cancelled, returning the path to the result data file.
+	// finishes or ctx is canceled, returning the path to the result data file.
 	Run(ctx context.Context, run *Run, target *Target, runDir string) (resultFile string, err error)
 }
 

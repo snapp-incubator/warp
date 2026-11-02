@@ -53,7 +53,7 @@ type Service struct {
 	resultCache map[string]*aggregate.Realtime // run ID -> parsed result (immutable once done)
 }
 
-// runControl lets a running benchmark be cancelled. stopped distinguishes a
+// runControl lets a running benchmark be canceled. stopped distinguishes a
 // user-initiated stop (→ aborted) from a genuine failure (→ failed).
 type runControl struct {
 	cancel  context.CancelFunc
@@ -599,8 +599,9 @@ func (s *Service) runScenario(w http.ResponseWriter, r *http.Request) {
 // resolveClients turns client IDs into addresses; an empty list means all clients.
 func (s *Service) resolveClients(ids []string) ([]string, error) {
 	if len(ids) == 0 {
-		var addrs []string
-		for _, c := range s.store.ListClients() {
+		clients := s.store.ListClients()
+		addrs := make([]string, 0, len(clients))
+		for _, c := range clients {
 			addrs = append(addrs, c.Address)
 		}
 		if len(addrs) == 0 {

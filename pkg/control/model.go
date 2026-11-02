@@ -91,6 +91,7 @@ type Client struct {
 // RunStatus is the lifecycle state of a run.
 type RunStatus string
 
+// The states a run moves through.
 const (
 	RunQueued   RunStatus = "queued"
 	RunRunning  RunStatus = "running"
